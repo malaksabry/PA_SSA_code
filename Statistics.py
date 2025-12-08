@@ -17,17 +17,110 @@ from sklearn.metrics import (
 )
 
 # ======================== File Paths ========================
-base_path = #add your base path containing the excel files
 
+# CHANGE HERE WITH YOUR PATH
+base_path = r'C:\Users\malak\PycharmProjects\PA_SSA_code'
+
+# Simple encoding modes + mPAP
+data_path = f"{base_path}\\all_simple_encoding.xlsx"
+
+# Complex encoding modes + mPAP, divided into the two cohorts (AHC, ASPIRE)
 AHC_path = f"{base_path}\\AHC.xlsx"
 ASPIRE_path = f"{base_path}\\ASPIRE.xlsx"
-data_path = f"{base_path}\\all_simple_encoding.xlsx"
 
 
 # ======================== Load Data ========================
+simple_encoding_data = pd.read_excel(data_path)
 AHC_data = pd.read_excel(AHC_path)
 ASPIRE_data = pd.read_excel(ASPIRE_path)
-simple_encoding_data = pd.read_excel(data_path)
+
+# ======================== Simple Encoding Regression ========================
+
+X = simple_encoding_data.iloc[:, :6]
+y_pressure = simple_encoding_data['mPAP']
+
+print("\n==== Linear Regression: Predicting mPAP, using simple encoding ====")
+
+reg = LinearRegression(fit_intercept=True).fit(X, y_pressure)
+w = reg.coef_
+
+regression_score = reg.score(X, y_pressure)
+print(f"Regression R²: {regression_score:.4f}")
+
+all_scores = reg.intercept_ + X @ w
+
+plt.figure()
+plt.scatter(all_scores, y_pressure, color='b')
+plt.plot(all_scores, reg.predict(X), color='red', linewidth=2)
+plt.xlabel('Regression')
+plt.ylabel('mPAP (mmHg)')
+plt.axis([-10, 130, -10, 130])
+plt.title("Regression Plot - Simple Encoding")
+plt.show()
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+import numpy as np
+
+split_rmse_values = []
+split_rmse_values_train = []
+split_rmse_std_values = []
+split_rmse_std_values_train = []
+split_r2_test = []
+
+split = [0.33]
+for jj in split:
+    r2_values_test = []
+    r2_values_train = []
+    MAE_values_test = []
+    MAE_values_train = []
+    RMSE_values_test = []
+    RMSE_values_train = []
+    true_vals_all = []
+    pred_all = []
+
+    num_repeats = int(1 / jj)
+
+    for i in range(num_repeats):
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(X, y_pressure, test_size=jj, random_state=i)
+
+        # Train model on selected features
+        reg = LinearRegression().fit(X_train, y_train)
+        y_pred_test = reg.predict(X_test)
+        y_pred_train = reg.predict(X_train)
+
+        # Store predictions
+        true_vals_all.extend(y_test)
+        pred_all.extend(y_pred_test)
+
+        # Metrics
+        r2_values_test.append(r2_score(y_test, y_pred_test))
+        r2_values_train.append(r2_score(y_train, y_pred_train))
+        MAE_values_test.append(mean_absolute_error(y_test, y_pred_test))
+        MAE_values_train.append(mean_absolute_error(y_train, y_pred_train))
+        RMSE_values_test.append(np.sqrt(mean_squared_error(y_test, y_pred_test)))
+        RMSE_values_train.append(np.sqrt(mean_squared_error(y_train, y_pred_train)))
+
+    # Print results for this split
+    print(f"=== Test Size: {jj * 100:.0f}% ===")
+    print('Train R²:', np.round(r2_values_train, 4))
+    print('Test R²:', np.round(r2_values_test, 4))
+    print('Train MAE:', np.round(MAE_values_train, 4))
+    print('Test MAE:', np.round(MAE_values_test, 4))
+    print('Train RMSE:', np.round(RMSE_values_train, 4))
+    print('Test RMSE:', np.round(RMSE_values_test, 4))
+
+    # Compute final R² on all collected predictions
+    split_r2_test.append(r2_score(true_vals_all, pred_all))
+
+print('\nFinal R² over all test splits:', split_r2_test)
+
+
+
+
+
 
 # ==================== Using AHC as train and AHC as test ========================
 
@@ -219,6 +312,8 @@ for jj in split:
     r2_values_train = []
     MAE_values_test = []
     MAE_values_train = []
+    RMSE_values_test = []
+    RMSE_values_train = []
     true_vals_all = []
     pred_all = []
 
@@ -242,6 +337,9 @@ for jj in split:
         r2_values_train.append(r2_score(y_train, y_pred_train))
         MAE_values_test.append(mean_absolute_error(y_test, y_pred_test))
         MAE_values_train.append(mean_absolute_error(y_train, y_pred_train))
+        RMSE_values_test.append(np.sqrt(mean_squared_error(y_test, y_pred_test)))
+        RMSE_values_train.append(np.sqrt(mean_squared_error(y_train, y_pred_train)))
+
 
     # Print results for this split
     print(f"=== Test Size: {jj * 100:.0f}% ===")
@@ -249,6 +347,8 @@ for jj in split:
     print('Test R²:', np.round(r2_values_test, 4))
     print('Train MAE:', np.round(MAE_values_train, 4))
     print('Test MAE:', np.round(MAE_values_test, 4))
+    print('Train RMSE:', np.round(RMSE_values_train, 4))
+    print('Test RMSE:', np.round(RMSE_values_test, 4))
 
     # Compute final R² on all collected predictions
     split_r2_test.append(r2_score(true_vals_all, pred_all))
@@ -256,79 +356,3 @@ for jj in split:
 print('\nFinal R² over all test splits:', split_r2_test)
 
 
-# ======================== Simple Encoding Regression ========================
-
-X = simple_encoding_data.iloc[:, :6]
-y_pressure = simple_encoding_data['mPAP']
-
-print("\n==== Linear Regression: Predicting mPAP ====")
-
-reg = LinearRegression(fit_intercept=True).fit(X, y_pressure)
-w = reg.coef_
-
-regression_score = reg.score(X, y_pressure)
-print(f"Regression R²: {regression_score:.4f}")
-
-all_scores = reg.intercept_ + X @ w
-
-plt.figure()
-plt.scatter(all_scores, y_pressure, color='b')
-plt.plot(all_scores, reg.predict(X), color='red', linewidth=2)
-plt.xlabel('Regression')
-plt.ylabel('mPAP (mmHg)')
-plt.axis([-10, 130, -10, 130])
-plt.title("Regression Plot - Simple Encoding")
-plt.show()
-
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-import numpy as np
-
-split_rmse_values = []
-split_rmse_values_train = []
-split_rmse_std_values = []
-split_rmse_std_values_train = []
-split_r2_test = []
-
-split = [0.33]
-for jj in split:
-    r2_values_test = []
-    r2_values_train = []
-    MAE_values_test = []
-    MAE_values_train = []
-    true_vals_all = []
-    pred_all = []
-
-    num_repeats = int(1 / jj)
-
-    for i in range(num_repeats):
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(X, y_pressure, test_size=jj, random_state=i)
-
-        # Train model on selected features
-        reg = LinearRegression().fit(X_train, y_train)
-        y_pred_test = reg.predict(X_test)
-        y_pred_train = reg.predict(X_train)
-
-        # Store predictions
-        true_vals_all.extend(y_test)
-        pred_all.extend(y_pred_test)
-
-        # Metrics
-        r2_values_test.append(r2_score(y_test, y_pred_test))
-        r2_values_train.append(r2_score(y_train, y_pred_train))
-        MAE_values_test.append(mean_absolute_error(y_test, y_pred_test))
-        MAE_values_train.append(mean_absolute_error(y_train, y_pred_train))
-
-    # Print results for this split
-    print(f"=== Test Size: {jj * 100:.0f}% ===")
-    print('Train R²:', np.round(r2_values_train, 4))
-    print('Test R²:', np.round(r2_values_test, 4))
-    print('Train MAE:', np.round(MAE_values_train, 4))
-    print('Test MAE:', np.round(MAE_values_test, 4))
-
-    # Compute final R² on all collected predictions
-    split_r2_test.append(r2_score(true_vals_all, pred_all))
-
-print('\nFinal R² over all test splits:', split_r2_test)
