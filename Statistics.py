@@ -13,8 +13,101 @@ from sklearn.metrics import (
     f1_score,
     confusion_matrix,
     ConfusionMatrixDisplay,
-    classification_report
-)
+    classification_report,
+    mean_squared_error,
+    r2_score,
+    mean_absolute_error)
+from math import sqrt
+
+# ======================== Helper Functions ========================
+
+def report_metrics(y_true, y_pred, label="Set"):
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    reg_test = LinearRegression().fit(y_pred.reshape(-1, 1), y_true)
+    r2 = reg_test.score(y_pred.reshape(-1, 1), y_true)
+    print(f"{label} RMSE: {rmse:.3f}")
+    print(f"{label} R²: {r2:.3f}")
+    return rmse, r2
+
+
+def plot_regression(y_true, y_pred, r2, label="Set"):
+    plt.figure(figsize=(5, 5), dpi=300)
+    plt.scatter(y_pred, y_true, alpha=0.7, color='steelblue')
+    min_val, max_val = min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--')
+    plt.title(f"{label} Regression Plot")
+    plt.ylabel("mPAP (mmHg)")
+    plt.xlabel("Regression Value")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def bland_altman_plot(y_true, y_pred, label="Set"):
+    mean_vals = (y_true + y_pred) / 2
+    diff_vals = y_pred - y_true
+    mean_diff = np.mean(diff_vals)
+    sd_diff = np.std(diff_vals)
+    print(f"{label} SD: {sd_diff:.3f}")
+
+    plt.figure(figsize=(6, 4), dpi=300)
+    plt.scatter(mean_vals, diff_vals, alpha=0.6, color='darkorange')
+    plt.axhline(mean_diff, color='gray', linestyle='--', label=f"Mean diff = {mean_diff:.2f}")
+    plt.axhline(mean_diff + 1.96 * sd_diff, color='red', linestyle='--', label='+1.96 SD')
+    plt.axhline(mean_diff - 1.96 * sd_diff, color='red', linestyle='--', label='-1.96 SD')
+    plt.title(f"{label} Bland–Altman Plot")
+    plt.xlabel("Mean of True & Predicted")
+    plt.ylabel("Difference (Pred - True)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+def cross_val(X, y):
+    split = [0.33]
+    for jj in split:
+        r2_values_test = []
+        r2_values_train = []
+        MAE_values_test = []
+        MAE_values_train = []
+        RMSE_values_test = []
+        RMSE_values_train = []
+        true_vals_all = []
+        pred_all = []
+
+        num_repeats = int(1 / jj)
+
+        for i in range(num_repeats):
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=jj, random_state=i)
+
+            # Train model on selected features
+            reg = LinearRegression().fit(X_train, y_train)
+            y_pred_test = reg.predict(X_test)
+            y_pred_train = reg.predict(X_train)
+
+            # Store predictions
+            true_vals_all.extend(y_test)
+            pred_all.extend(y_pred_test)
+
+            # Metrics
+            r2_values_test.append(r2_score(y_test, y_pred_test))
+            r2_values_train.append(r2_score(y_train, y_pred_train))
+            MAE_values_test.append(mean_absolute_error(y_test, y_pred_test))
+            MAE_values_train.append(mean_absolute_error(y_train, y_pred_train))
+            RMSE_values_test.append(np.sqrt(mean_squared_error(y_test, y_pred_test)))
+            RMSE_values_train.append(np.sqrt(mean_squared_error(y_train, y_pred_train)))
+
+        # Print results for this split
+        print(f"=== Test Size: {jj * 100:.0f}% ===")
+        print('Train R²:', np.round(r2_values_train, 4))
+        print('Test R²:', np.round(r2_values_test, 4))
+        print('Train MAE:', np.round(MAE_values_train, 4))
+        print('Test MAE:', np.round(MAE_values_test, 4))
+        print('Train RMSE:', np.round(RMSE_values_train, 4))
+        print('Test RMSE:', np.round(RMSE_values_test, 4))
+
 
 # ======================== File Paths ========================
 
@@ -28,108 +121,88 @@ data_path = f"{base_path}\\all_simple_encoding.xlsx"
 AHC_path = f"{base_path}\\AHC.xlsx"
 ASPIRE_path = f"{base_path}\\ASPIRE.xlsx"
 
-
 # ======================== Load Data ========================
 simple_encoding_data = pd.read_excel(data_path)
 AHC_data = pd.read_excel(AHC_path)
 ASPIRE_data = pd.read_excel(ASPIRE_path)
 
 # ======================== Simple Encoding Regression ========================
-
-X = simple_encoding_data.iloc[:, :6]
-y_pressure = simple_encoding_data['mPAP']
-
 print("\n==== Linear Regression: Predicting mPAP, using simple encoding ====")
 
-reg = LinearRegression(fit_intercept=True).fit(X, y_pressure)
+X = simple_encoding_data.iloc[:, :6]
+y = simple_encoding_data['mPAP']
+
+
+reg = LinearRegression().fit(X, y)
 w = reg.coef_
+y_pred = reg.predict(X)
 
-regression_score = reg.score(X, y_pressure)
-print(f"Regression R²: {regression_score:.4f}")
+# Report metrics
+rmse, r2 = report_metrics(y, y_pred, "Simple encoding")
 
-all_scores = reg.intercept_ + X @ w
+# Plots
+plot_regression(y, y_pred, r2, "Simple encoding")
+bland_altman_plot(y, y_pred, "Simple encoding")
 
-plt.figure()
-plt.scatter(all_scores, y_pressure, color='b')
-plt.plot(all_scores, reg.predict(X), color='red', linewidth=2)
-plt.xlabel('Regression')
-plt.ylabel('mPAP (mmHg)')
-plt.axis([-10, 130, -10, 130])
-plt.title("Regression Plot - Simple Encoding")
-plt.show()
+print("\n==== Cross-validation ====")
+cross_val(X, y)
 
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-import numpy as np
+# ======================== Complex Encoding Regression ========================
+print("\n==== Linear Regression: Predicting mPAP, using complex encoding ====")
 
-split_rmse_values = []
-split_rmse_values_train = []
-split_rmse_std_values = []
-split_rmse_std_values_train = []
-split_r2_test = []
+combined_data = pd.concat([AHC_data, ASPIRE_data], ignore_index=True)
 
-split = [0.33]
-for jj in split:
-    r2_values_test = []
-    r2_values_train = []
-    MAE_values_test = []
-    MAE_values_train = []
-    RMSE_values_test = []
-    RMSE_values_train = []
-    true_vals_all = []
-    pred_all = []
-
-    num_repeats = int(1 / jj)
-
-    for i in range(num_repeats):
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(X, y_pressure, test_size=jj, random_state=i)
-
-        # Train model on selected features
-        reg = LinearRegression().fit(X_train, y_train)
-        y_pred_test = reg.predict(X_test)
-        y_pred_train = reg.predict(X_train)
-
-        # Store predictions
-        true_vals_all.extend(y_test)
-        pred_all.extend(y_pred_test)
-
-        # Metrics
-        r2_values_test.append(r2_score(y_test, y_pred_test))
-        r2_values_train.append(r2_score(y_train, y_pred_train))
-        MAE_values_test.append(mean_absolute_error(y_test, y_pred_test))
-        MAE_values_train.append(mean_absolute_error(y_train, y_pred_train))
-        RMSE_values_test.append(np.sqrt(mean_squared_error(y_test, y_pred_test)))
-        RMSE_values_train.append(np.sqrt(mean_squared_error(y_train, y_pred_train)))
-
-    # Print results for this split
-    print(f"=== Test Size: {jj * 100:.0f}% ===")
-    print('Train R²:', np.round(r2_values_train, 4))
-    print('Test R²:', np.round(r2_values_test, 4))
-    print('Train MAE:', np.round(MAE_values_train, 4))
-    print('Test MAE:', np.round(MAE_values_test, 4))
-    print('Train RMSE:', np.round(RMSE_values_train, 4))
-    print('Test RMSE:', np.round(RMSE_values_test, 4))
-
-    # Compute final R² on all collected predictions
-    split_r2_test.append(r2_score(true_vals_all, pred_all))
-
-print('\nFinal R² over all test splits:', split_r2_test)
-
-
-
-
-
-
-# ==================== Using AHC as train and AHC as test ========================
-
-X_train = AHC_data.iloc[:, :13]
-X_test = ASPIRE_data.iloc[:, :13]
-
+X = combined_data.iloc[:, :13]
+y = combined_data['mPAP']
 target_col = [14, 15]
 
+reg = LinearRegression().fit(X, y)
+w = reg.coef_
+y_pred = reg.predict(X)
+
+# Report metrics
+rmse, r2 = report_metrics(y, y_pred, "Complex encoding")
+
+# Plots
+plot_regression(y, y_pred, r2, "Complex encoding")
+bland_altman_plot(y, y_pred, "Complex encoding")
+
+print("\n==== Cross-validation ====")
+cross_val(X, y)
+
+
+# ======================== Train/Test Analysis 1 ========================
+print("\n===== Linear Regression: Train on AHC, Test on ASPIRE =====")
+
+# Use first 7 components
+X_train = AHC_data.iloc[:, :6]
+X_test = ASPIRE_data.iloc[:, :6]
+y_train = AHC_data.iloc[:, 13]
+y_test = ASPIRE_data.iloc[:, 13]
+
+
+# Fit model
+reg = LinearRegression().fit(X_train, y_train)
+w = reg.coef_
+y_train_pred = reg.predict(X_train)
+y_test_pred = reg.predict(X_test)
+
+# Report metrics
+rmse_train, r2_train = report_metrics(y_train, y_train_pred, "Train (AHC)")
+rmse_test, r2_test = report_metrics(y_test, y_test_pred, "Test (ASPIRE)")
+
+
+# Plots
+plot_regression(y_train, y_train_pred, r2_train, "Train (AHC)")#, highlight_indices)
+plot_regression(y_test, y_test_pred, r2_test, "Test (ASPIRE)")
+bland_altman_plot(y_train, y_train_pred, "Train (AHC)")
+bland_altman_plot(y_test, y_test_pred, "Test (ASPIRE)")
+
+
+
 # ======================== LDA Classification ========================
+print("\n===== LDA: Train on AHC, Test on ASPIRE =====")
+
 for target in target_col:
     y_train = AHC_data.iloc[:, target]
     y_test = ASPIRE_data.iloc[:, target]
@@ -151,59 +224,149 @@ for target in target_col:
 
 
 
-# ======================== Regression: Pressure Prediction ========================
-print("\n==== Linear Regression: Predicting mPAP ====")
-y_train_pressure = AHC_data.iloc[:, 13]
-y_test_pressure = ASPIRE_data.iloc[:, 13]
+# ======================== Analysis 2 ========================
+print("\n===== Analysis 2a: Train on AHC, Test on ASPIRE, group 1 =====")
 
-reg = LinearRegression(fit_intercept=True).fit(X_train, y_train_pressure)
+
+ASPIRE_data = pd.read_excel(f"{base_path}\\ASPIRE_G1.xlsx")
+
+
+# Use first 7 components
+X_train = AHC_data.iloc[:, :6]
+X_test = ASPIRE_data.iloc[:, :6]
+y_train = AHC_data.iloc[:, 13]
+y_test = ASPIRE_data.iloc[:, 13]
+
+# Fit model
+reg = LinearRegression().fit(X_train, y_train)
+y_train_pred = reg.predict(X_train)
+y_test_pred = reg.predict(X_test)
+
+
+# Report metrics
+rmse_train, r2_train = report_metrics(y_train, y_train_pred, "Train (AHC)")
+rmse_test, r2_test = report_metrics(y_test, y_test_pred, "Test (ASPIRE G1+controls)")
+
+# Plots
+plot_regression(y_train, y_train_pred, r2_train, "Train (AHC)")
+plot_regression(y_test, y_test_pred, r2_test, "Test (ASPIRE G1+controls)")
+bland_altman_plot(y_train, y_train_pred, "Train (AHC)")
+bland_altman_plot(y_test, y_test_pred, "Test (ASPIRE G1+controls)")
+
+
+print("\n===== Analysis 2b: Train on AHC, Test on ASPIRE, groups 2-4 =====")
+
+
+ASPIRE_data = pd.read_excel(f"{base_path}\\ASPIRE_control+G2-4.xlsx")
+
+
+# Use first 7 components
+X_train = AHC_data.iloc[:, :6]
+X_test = ASPIRE_data.iloc[:, :6]
+y_train = AHC_data.iloc[:, 13]
+y_test = ASPIRE_data.iloc[:, 13]
+
+# Fit model
+reg = LinearRegression().fit(X_train, y_train)
+y_train_pred = reg.predict(X_train)
+y_test_pred = reg.predict(X_test)
+
+
+# Report metrics
+rmse_train, r2_train = report_metrics(y_train, y_train_pred, "Train (AHC)")
+rmse_test, r2_test = report_metrics(y_test, y_test_pred, "Test (ASPIRE G2-4+controls)")
+
+# Plots
+plot_regression(y_train, y_train_pred, r2_train, "Train (AHC)")
+plot_regression(y_test, y_test_pred, r2_test, "Test (ASPIRE G2-4+controls)")
+bland_altman_plot(y_train, y_train_pred, "Train (AHC)")
+bland_altman_plot(y_test, y_test_pred, "Test (ASPIRE G2-4+controls)")
+
+print("\n===== Analysis 2c: Train on AHC, Test on ASPIRE, matched mPAP ranges =====")
+
+AHC_data = pd.read_excel(f"{base_path}\\AHC_matched.xlsx")
+ASPIRE_data = pd.read_excel(f"{base_path}\\ASPIRE_G1_matched.xlsx")
+
+
+# Use first 7 components
+X_train = AHC_data.iloc[:, :6]
+X_test = ASPIRE_data.iloc[:, :6]
+y_train = AHC_data.iloc[:, 13]
+y_test = ASPIRE_data.iloc[:, 13]
+
+# Fit model
+reg = LinearRegression().fit(X_train, y_train)
+y_train_pred = reg.predict(X_train)
+y_test_pred = reg.predict(X_test)
+
+
+# Report metrics
+rmse_train, r2_train = report_metrics(y_train, y_train_pred, "Train (AHC matched mPAP distribution)")
+rmse_test, r2_test = report_metrics(y_test, y_test_pred, "Test (ASPIRE matched mPAP distribution)")
+
+# Plots
+plot_regression(y_train, y_train_pred, r2_train, "Train (AHC matched mPAP distribution)")
+plot_regression(y_test, y_test_pred, r2_test, "Test (ASPIRE matched mPAP distribution)")
+bland_altman_plot(y_train, y_train_pred, "Train (AHC matched mPAP distribution)")
+bland_altman_plot(y_test, y_test_pred, "Test (ASPIRE matched mPAP distribution)")
+
+# ======================== Analysis 3 ========================
+print("\n===== Analysis 3: Combined Dataset with Split & 3-Fold CV =====")
+
+# Combine datasets
+X_combined = pd.concat([AHC_data.iloc[:, :7], ASPIRE_data.iloc[:, :7]], axis=0, ignore_index=True)
+y_combined = pd.concat([AHC_data.iloc[:, 13], ASPIRE_data.iloc[:, 13]], axis=0, ignore_index=True)
+
+# Split 70/30
+X_train, X_test, y_train, y_test = train_test_split(X_combined, y_combined, test_size=0.33, random_state=42)
+
+# Train
+reg = LinearRegression().fit(X_train, y_train)
 w = reg.coef_
-
-train_score = reg.score(X_train, y_train_pressure)
-print(f"Train R²: {train_score:.4f}")
-
-all_scores = reg.intercept_ + X_train @ w
-
-plt.figure()
-plt.scatter(all_scores, y_train_pressure, color='b')
-plt.plot(all_scores, reg.predict(X_train), color='red', linewidth=2)
-plt.xlabel('Regression')
-plt.ylabel('mPAP (mmHg)')
-plt.axis([-10, 130, -10, 130])
-plt.title("Train (AHC) Regression Plot")
-plt.show()
-
-aspire_scores = reg.intercept_ + X_test @ w
-
-plt.figure()
-plt.scatter(aspire_scores, y_test_pressure, color='b')
-plt.plot(aspire_scores, reg.predict(X_test), color='red', linewidth=2)
-plt.xlabel('Regression')
-plt.ylabel('mPAP (mmHg)')
-plt.axis([-10, 130, -10, 130])
-plt.title("Test (ASPIRE) Regression Plot")
-plt.show()
-
-reg = LinearRegression().fit(np.array(aspire_scores).reshape(-1, 1), y_test_pressure)
-test_score=reg.score((np.array(aspire_scores).reshape(-1, 1)), y_test_pressure)
-
-print(f"Test R²: {test_score:.4f}")
+y_train_pred = reg.predict(X_train)
+y_test_pred = reg.predict(X_test)
 
 
+# Metrics
+rmse_train, r2_train = report_metrics(y_train, y_train_pred, "Train (Combined)")
+rmse_test, r2_test = report_metrics(y_test, y_test_pred, "Test (Combined)")
 
-# =============== Combined analyses =========================================
+# Plots
+plot_regression(y_train, y_train_pred, r2_train, "Train (Combined)")
+plot_regression(y_test, y_test_pred, r2_test, "Test (Combined)")
+bland_altman_plot(y_train, y_train_pred, "Train (Combined)")
+bland_altman_plot(y_test, y_test_pred, "Test (Combined)")
 
-combined_data = pd.concat([AHC_data, ASPIRE_data], ignore_index=True)
+# ======================== 3-Fold Cross Validation ========================
+print("\n===== 3-Fold Cross Validation on Combined Data =====")
 
-X = combined_data.iloc[:, :13]
-y_pressure = combined_data['mPAP']
-target_col = [14, 15]
+kf = KFold(n_splits=3, shuffle=True, random_state=42)
+r2_scores = []
+rmse_scores = []
+
+for i, (train_idx, test_idx) in enumerate(kf.split(X_combined)):
+    X_tr, X_te = X_combined.iloc[train_idx], X_combined.iloc[test_idx]
+    y_tr, y_te = y_combined.iloc[train_idx], y_combined.iloc[test_idx]
+
+    reg = LinearRegression().fit(X_tr, y_tr)
+    y_pred = reg.predict(X_te)
+
+    r2 = r2_score(y_te, y_pred)
+    rmse = sqrt(mean_squared_error(y_te, y_pred))
+
+    r2_scores.append(r2)
+    rmse_scores.append(rmse)
+
+    print(f"Fold {i + 1}: R² = {r2:.3f}, RMSE = {rmse:.3f}")
+
+print(f"\nAverage 3-Fold R²: {np.mean(r2_scores):.3f} ± {np.std(r2_scores):.3f}")
+print(f"Average 3-Fold RMSE: {np.mean(rmse_scores):.3f} ± {np.std(rmse_scores):.3f}")
+
 
 # Normalize regression vector for co-linearity analysis
-reg = LinearRegression(fit_intercept=True).fit(X, y_pressure)
+reg = LinearRegression(fit_intercept=True).fit(X, y)
 a = reg.coef_ / np.linalg.norm(reg.coef_)
 
-{AHC_data.keys()[target]}
 
 for target in target_col:
     print(f"\n==== LDA for Target: {combined_data.keys()[target]} ====")
@@ -236,6 +399,7 @@ for target in target_col:
     disp.plot(cmap='Blues')
     plt.title(f'Confusion Matrix for {combined_data.keys()[target]}')
     plt.show()
+
 
 # ======================== Repeated Evaluation (100 Runs) ========================
 print("\n==== Repeated LDA Evaluation (100 Runs) ====")
@@ -274,85 +438,4 @@ for target in target_col:
     print(f"Average Precision: {precisions.mean():.4f} ± {precisions.std():.4f}")
     print(f"Average Recall   : {recalls.mean():.4f} ± {recalls.std():.4f}")
     print(f"Average F1 Score : {f1s.mean():.4f} ± {f1s.std():.4f}")
-
-# ======================== Regression: Pressure Prediction ========================
-print("\n==== Linear Regression: Predicting mPAP ====")
-
-reg = LinearRegression(fit_intercept=True).fit(X, y_pressure)
-w = reg.coef_
-
-regression_score = reg.score(X, y_pressure)
-print(f"Regression R²: {regression_score:.4f}")
-
-all_scores = reg.intercept_ + X @ w
-
-plt.figure()
-plt.scatter(all_scores, y_pressure, color='b')
-plt.plot(all_scores, reg.predict(X), color='red', linewidth=2)
-plt.xlabel('Regression')
-plt.ylabel('mPAP (mmHg)')
-plt.axis([-10, 130, -10, 130])
-plt.title("Regression Plot - Combined data")
-plt.show()
-
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-import numpy as np
-
-split_rmse_values = []
-split_rmse_values_train = []
-split_rmse_std_values = []
-split_rmse_std_values_train = []
-split_r2_test = []
-
-split = [0.33]
-for jj in split:
-    r2_values_test = []
-    r2_values_train = []
-    MAE_values_test = []
-    MAE_values_train = []
-    RMSE_values_test = []
-    RMSE_values_train = []
-    true_vals_all = []
-    pred_all = []
-
-    num_repeats = int(1 / jj)
-
-    for i in range(num_repeats):
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(X, y_pressure, test_size=jj, random_state=i)
-
-        # Train model on selected features
-        reg = LinearRegression().fit(X_train, y_train)
-        y_pred_test = reg.predict(X_test)
-        y_pred_train = reg.predict(X_train)
-
-        # Store predictions
-        true_vals_all.extend(y_test)
-        pred_all.extend(y_pred_test)
-
-        # Metrics
-        r2_values_test.append(r2_score(y_test, y_pred_test))
-        r2_values_train.append(r2_score(y_train, y_pred_train))
-        MAE_values_test.append(mean_absolute_error(y_test, y_pred_test))
-        MAE_values_train.append(mean_absolute_error(y_train, y_pred_train))
-        RMSE_values_test.append(np.sqrt(mean_squared_error(y_test, y_pred_test)))
-        RMSE_values_train.append(np.sqrt(mean_squared_error(y_train, y_pred_train)))
-
-
-    # Print results for this split
-    print(f"=== Test Size: {jj * 100:.0f}% ===")
-    print('Train R²:', np.round(r2_values_train, 4))
-    print('Test R²:', np.round(r2_values_test, 4))
-    print('Train MAE:', np.round(MAE_values_train, 4))
-    print('Test MAE:', np.round(MAE_values_test, 4))
-    print('Train RMSE:', np.round(RMSE_values_train, 4))
-    print('Test RMSE:', np.round(RMSE_values_test, 4))
-
-    # Compute final R² on all collected predictions
-    split_r2_test.append(r2_score(true_vals_all, pred_all))
-
-print('\nFinal R² over all test splits:', split_r2_test)
-
 
